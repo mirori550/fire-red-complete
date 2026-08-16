@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Add the Agatha vs. Oak archival battle to the Teachy TV.
+"""Add a playable young Samuel Oak vs. Agatha flashback to the Teachy TV.
 
-The recording extends FireRed's existing POKé DUDE scripted-battle controller,
-so it is watch-only but still uses the real battle renderer, move animations,
-HP bars, status icons, switching, and fainting logic.
+The player temporarily controls Samuel's six-Pokemon party in a normal FireRed
+trainer battle. The real player party is restored when the flashback ends.
 """
 
 from pathlib import Path
@@ -21,22 +20,15 @@ def write(path, text):
         p.write_text(text, encoding="utf-8")
 
 
-def patch_teachy_header():
+def patch_header():
     path = "include/teachy_tv.h"
     text = read(path)
-    old = """    TTVSCR_TMS,
-    TTVSCR_REGISTER
-};
-"""
-    new = """    TTVSCR_TMS,
-    TTVSCR_REGISTER,
-    TTVSCR_OAK_AGATHA
-};
-"""
+    old = """    TTVSCR_TMS,\n    TTVSCR_REGISTER\n};\n"""
+    new = """    TTVSCR_TMS,\n    TTVSCR_REGISTER,\n    TTVSCR_OAK_AGATHA\n};\n"""
     if old in text:
         text = text.replace(old, new, 1)
     elif "TTVSCR_OAK_AGATHA" not in text:
-        raise RuntimeError("Could not extend Teachy TV script enum")
+        raise RuntimeError("Could not extend Teachy TV enum")
     write(path, text)
 
 
@@ -48,22 +40,20 @@ def patch_strings():
         extra = r'''const u8 gTeachyTvString_OakAgathaBattle[] = _("Agatha vs. Oak Battle");
 const u8 gTeachyTvText_OakAgathaScript1[] = _(
     "ARCHIVE FOOTAGE - KANTO LEAGUE\p"
-    "A young SAMUEL OAK enters the\n"
-    "CHAMPION's room.\p"
+    "You will play as a young SAMUEL OAK.\p"
     "AGATHA: Sammy, good to see you\n"
     "became CHAMPION.\p"
     "Too bad you're too late! I already\n"
     "became CHAMPION a few minutes ago!\p"
     "Their final battle begins...");
 const u8 gTeachyTvText_OakAgathaScript2[] = _(
-    "AGATHA: ...You actually beat me.\p"
-    "SAMUEL: Looks like I'm the CHAMPION\n"
-    "now.\p"
-    "AGATHA: Don't get used to it, Sammy.\p"
+    "The archived battle has ended.\p"
+    "History remembers this as SAMUEL\n"
+    "OAK's final victory over AGATHA.\p"
     "ARCHIVE FOOTAGE ENDS.");
 '''
         if marker not in text:
-            raise RuntimeError("Teachy TV string insertion point not found")
+            raise RuntimeError("Teachy TV text insertion point not found")
         text = text.replace(marker, marker + extra, 1)
     write(path, text)
 
@@ -77,64 +67,41 @@ const u8 gTeachyTvText_OakAgathaScript2[] = _(
             "extern const u8 gTeachyTvText_OakAgathaScript2[];\n"
         )
         if marker not in text:
-            raise RuntimeError("strings.h Teachy TV insertion point not found")
+            raise RuntimeError("strings.h insertion point not found")
         text = text.replace(marker, marker + extra, 1)
     write(path, text)
 
 
-def patch_teachy_menu_and_flow():
+def patch_teachy_tv():
     path = "src/teachy_tv.c"
     text = read(path)
 
     if ".label = gTeachyTvString_OakAgathaBattle" not in text:
-        # Add the archive program immediately before CANCEL in both menu lists.
-        cancel_block = """    {
-        .label = gTeachyTvString_Cancel,
-        .index = -2
-    },
-"""
-        history_block = """    {
-        .label = gTeachyTvString_OakAgathaBattle,
-        .index = TTVSCR_OAK_AGATHA
-    },
-"""
-        # There are exactly two lists with a cancel entry.
-        text = text.replace(cancel_block, history_block + cancel_block, 2)
-
+        cancel = """    {\n        .label = gTeachyTvString_Cancel,\n        .index = -2\n    },\n"""
+        entry = """    {\n        .label = gTeachyTvString_OakAgathaBattle,\n        .index = TTVSCR_OAK_AGATHA\n    },\n"""
+        text = text.replace(cancel, entry + cancel, 2)
         text = text.replace(".totalItems = 7,\n    .maxShowed = 6,", ".totalItems = 8,\n    .maxShowed = 6,", 1)
-        text = text.replace("gMultiuseListMenuTemplate.totalItems = 5;\n        gMultiuseListMenuTemplate.maxShowed = 5;",
-                            "gMultiuseListMenuTemplate.totalItems = 6;\n        gMultiuseListMenuTemplate.maxShowed = 6;", 1)
+        text = text.replace(
+            "gMultiuseListMenuTemplate.totalItems = 5;\n        gMultiuseListMenuTemplate.maxShowed = 5;",
+            "gMultiuseListMenuTemplate.totalItems = 6;\n        gMultiuseListMenuTemplate.maxShowed = 6;",
+            1,
+        )
 
-    # One extra return state for the recording: resume at its outro text.
-    old = """static const u8 sWhereToReturnToFromBattle[] = 
-{
-    12,
-    12,
-    12,
-    12,
-     9,
-     9
-};
-"""
-    new = """static const u8 sWhereToReturnToFromBattle[] = 
-{
-    12,
-    12,
-    12,
-    12,
-     9,
-     9,
-     4
-};
-"""
-    if old in text:
-        text = text.replace(old, new, 1)
+    marker = "static void TTVcmd_TaskBattleOrFadeByOptionChosen(u8 taskId);\n"
+    decls = (
+        "static void TTVcmd_OakAgathaArchiveIntro(u8 taskId);\n"
+        "static void SetupPlayableOakAgathaBattle(void);\n"
+    )
+    if "static void SetupPlayableOakAgathaBattle(void);" not in text:
+        if marker not in text:
+            raise RuntimeError("Teachy TV declaration point not found")
+        text = text.replace(marker, marker + decls, 1)
 
     if "sOakAgathaScript[]" not in text:
         marker = "static void (* const sRegisterKeyItemScript[])(u8) = \n{"
         idx = text.find(marker)
         if idx < 0:
-            raise RuntimeError("Teachy TV script-array insertion point not found")
+            raise RuntimeError("Register script array not found")
         end = text.find("\n};", idx) + 4
         archive = r'''
 
@@ -159,365 +126,132 @@ static void (* const sOakAgathaScript[])(u8) =
 '''
         text = text[:end] + archive + text[end:]
 
-    # Function is used by the archive intro before its definition.
-    if "static void TTVcmd_OakAgathaArchiveIntro(u8 taskId);" not in text:
-        marker = "static void TTVcmd_TaskBattleOrFadeByOptionChosen(u8 taskId);\n"
-        text = text.replace(marker, marker + "static void TTVcmd_OakAgathaArchiveIntro(u8 taskId);\n", 1)
-
-    # Add recording cluster to the dispatch table.
-    old = """            sTMsScript,
-            sRegisterKeyItemScript,
-        };
-"""
-    new = """            sTMsScript,
-            sRegisterKeyItemScript,
-            sOakAgathaScript,
-        };
-"""
+    old = """            sTMsScript,\n            sRegisterKeyItemScript,\n        };\n"""
+    new = """            sTMsScript,\n            sRegisterKeyItemScript,\n            sOakAgathaScript,\n        };\n"""
     if old in text:
         text = text.replace(old, new, 1)
 
-    # Recording intro/outro strings bypass the standard Poké Dude texts.
-    old = """        gTeachyTvText_TMsScript1,
-        gTeachyTvText_RegisterScript1,
-    };
-"""
-    new = """        gTeachyTvText_TMsScript1,
-        gTeachyTvText_RegisterScript1,
-        gTeachyTvText_OakAgathaScript1,
-    };
-"""
+    old = """        gTeachyTvText_TMsScript1,\n        gTeachyTvText_RegisterScript1,\n    };\n"""
+    new = """        gTeachyTvText_TMsScript1,\n        gTeachyTvText_RegisterScript1,\n        gTeachyTvText_OakAgathaScript1,\n    };\n"""
     if old in text:
         text = text.replace(old, new, 1)
-    old = """        gTeachyTvText_TMsScript2,
-        gTeachyTvText_RegisterScript2,
-    };
-"""
-    new = """        gTeachyTvText_TMsScript2,
-        gTeachyTvText_RegisterScript2,
-        gTeachyTvText_OakAgathaScript2,
-    };
-"""
+    old = """        gTeachyTvText_TMsScript2,\n        gTeachyTvText_RegisterScript2,\n    };\n"""
+    new = """        gTeachyTvText_TMsScript2,\n        gTeachyTvText_RegisterScript2,\n        gTeachyTvText_OakAgathaScript2,\n    };\n"""
     if old in text:
         text = text.replace(old, new, 1)
 
-    # The historical recording launches the same real battle renderer as the
-    # four normal Teachy TV battle demonstrations.
-    old = """    case TTVSCR_CATCHING:
-        TeachyTvPrepBattle(taskId);
-        break;
-"""
-    new = """    case TTVSCR_CATCHING:
-    case TTVSCR_OAK_AGATHA:
-        TeachyTvPrepBattle(taskId);
-        break;
-"""
+    old = """static const u8 sWhereToReturnToFromBattle[] = \n{\n    12,\n    12,\n    12,\n    12,\n     9,\n     9\n};\n"""
+    new = """static const u8 sWhereToReturnToFromBattle[] = \n{\n    12,\n    12,\n    12,\n    12,\n     9,\n     9,\n     4\n};\n"""
     if old in text:
         text = text.replace(old, new, 1)
 
-    old = """    case TTVSCR_CATCHING:
-        TeachyTvSetSpriteCoordsAndSwitchFrame(data[1], 0x78, 0x38, 0);
-"""
-    new = """    case TTVSCR_CATCHING:
-        TeachyTvSetSpriteCoordsAndSwitchFrame(data[1], 0x78, 0x38, 0);
-"""
-    # No visible Poké Dude host for the archive recording; object starts hidden.
-    setup_marker = """    case TTVSCR_TMS:
-    case TTVSCR_REGISTER:
-        TeachyTvSetSpriteCoordsAndSwitchFrame(data[1], 0x78, 0x38, 0);
-        break;
-"""
-    if "case TTVSCR_OAK_AGATHA:\n        break;" not in text:
-        repl = setup_marker + "    case TTVSCR_OAK_AGATHA:\n        break;\n"
-        if setup_marker not in text:
-            raise RuntimeError("Teachy TV post-battle switch insertion point not found")
-        text = text.replace(setup_marker, repl, 1)
+    setup_marker = """    case TTVSCR_TMS:\n    case TTVSCR_REGISTER:\n        TeachyTvSetSpriteCoordsAndSwitchFrame(data[1], 0x78, 0x38, 0);\n        break;\n"""
+    if "case TTVSCR_OAK_AGATHA:\n        break;" not in text and setup_marker in text:
+        text = text.replace(setup_marker, setup_marker + "    case TTVSCR_OAK_AGATHA:\n        break;\n", 1)
 
-    # Use a classic white-bar transition for the archival Champion battle.
-    old = """    if (sStaticResources.whichScript == TTVSCR_BATTLE)
-        data[6] = B_TRANSITION_WHITE_BARS_FADE;
-    else
-        data[6] = B_TRANSITION_SLICE;
-"""
-    new = """    if (sStaticResources.whichScript == TTVSCR_BATTLE || sStaticResources.whichScript == TTVSCR_OAK_AGATHA)
-        data[6] = B_TRANSITION_WHITE_BARS_FADE;
-    else
-        data[6] = B_TRANSITION_SLICE;
-"""
+    old = """    case TTVSCR_CATCHING:\n        TeachyTvPrepBattle(taskId);\n        break;\n"""
+    new = """    case TTVSCR_CATCHING:\n    case TTVSCR_OAK_AGATHA:\n        TeachyTvPrepBattle(taskId);\n        break;\n"""
     if old in text:
         text = text.replace(old, new, 1)
 
-    write(path, text)
+    old = """    SavePlayerParty();\n    InitPokedudePartyAndOpponent();\n    PlayMapChosenOrBattleBGM(MUS_DUMMY);\n"""
+    new = """    SavePlayerParty();\n    if (sStaticResources.whichScript == TTVSCR_OAK_AGATHA)\n        SetupPlayableOakAgathaBattle();\n    else\n        InitPokedudePartyAndOpponent();\n    PlayMapChosenOrBattleBGM(MUS_DUMMY);\n"""
+    if old in text:
+        text = text.replace(old, new, 1)
 
+    old = """    if (sStaticResources.whichScript == TTVSCR_BATTLE)\n        data[6] = B_TRANSITION_WHITE_BARS_FADE;\n    else\n        data[6] = B_TRANSITION_SLICE;\n"""
+    new = """    if (sStaticResources.whichScript == TTVSCR_BATTLE || sStaticResources.whichScript == TTVSCR_OAK_AGATHA)\n        data[6] = B_TRANSITION_WHITE_BARS_FADE;\n    else\n        data[6] = B_TRANSITION_SLICE;\n"""
+    if old in text:
+        text = text.replace(old, new, 1)
 
-def patch_pokedude_history_battle():
-    path = "src/battle_controller_pokedude.c"
-    text = read(path)
-
-    # Deterministic move choices for the recording. Each side has an independent
-    # cursor through the same timeline. The final repeated choice is slot 1:
-    # Nidoking's Earthquake vs Gengar's Psychic, guaranteeing the intended
-    # climactic matchup once both aces are last.
-    if "sInputScripts_ChooseAction_OakAgatha" not in text:
-        marker = "static const struct PokedudeInputScript *const sInputScripts_ChooseAction[] =\n{"
+    if "static void SetupPlayableOakAgathaBattle(void)\n{" not in text:
+        marker = "static void TeachyTvPreBattleAnimAndSetBattleCallback(u8 taskId)\n{"
         idx = text.find(marker)
         if idx < 0:
-            raise RuntimeError("Pokedude action pointer table not found")
-        archive_actions = r'''
-static const struct PokedudeInputScript sInputScripts_ChooseAction_OakAgatha[] =
+            raise RuntimeError("Could not insert playable flashback setup")
+        helper = r'''
+static void SetArchiveMon(struct Pokemon *mon, u16 species, u8 level, const u16 moves[MAX_MON_MOVES])
 {
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {4, 4}, .delay = {0, 0} },
-};
+    u8 i;
+    CreateMon(mon, species, level, USE_RANDOM_IVS, FALSE, 0, OT_ID_PLAYER_ID, 0);
+    for (i = 0; i < MAX_MON_MOVES; i++)
+        SetMonMoveSlot(mon, moves[i], i);
+}
 
-'''
-        text = text[:idx] + archive_actions + text[idx:]
-
-        old = """    [TTVSCR_MATCHUPS] = sInputScripts_ChooseAction_Matchups,
-    [TTVSCR_CATCHING] = sInputScripts_ChooseAction_Catching,
-};
-"""
-        new = """    [TTVSCR_MATCHUPS]  = sInputScripts_ChooseAction_Matchups,
-    [TTVSCR_CATCHING]  = sInputScripts_ChooseAction_Catching,
-    [TTVSCR_OAK_AGATHA] = sInputScripts_ChooseAction_OakAgatha,
-};
-"""
-        if old not in text:
-            raise RuntimeError("Could not extend action script pointer table")
-        text = text.replace(old, new, 1)
-
-    if "sInputScripts_ChooseMove_OakAgatha" not in text:
-        marker = "static const struct PokedudeInputScript *const sInputScripts_ChooseMove[] =\n{"
-        idx = text.find(marker)
-        if idx < 0:
-            raise RuntimeError("Pokedude move pointer table not found")
-        # Timeline move-slot choices. Player side is young Oak; opponent is Agatha.
-        archive_moves = r'''
-static const struct PokedudeInputScript sInputScripts_ChooseMove_OakAgatha[] =
+static void SetupPlayableOakAgathaBattle(void)
 {
-    { .cursorPos = {1, 3}, .delay = {36, 36} }, // EQ / Toxic (Tauros vs Victreebel)
-    { .cursorPos = {0, 1}, .delay = {36, 36} }, // Take Down / SolarBeam
-    { .cursorPos = {1, 0}, .delay = {36, 36} },
-    { .cursorPos = {1, 3}, .delay = {36, 36} },
-    { .cursorPos = {0, 1}, .delay = {36, 36} },
-    { .cursorPos = {2, 0}, .delay = {36, 36} },
-    { .cursorPos = {1, 3}, .delay = {36, 36} },
-    { .cursorPos = {0, 0}, .delay = {36, 36} },
-    { .cursorPos = {1, 1}, .delay = {36, 36} },
-    { .cursorPos = {3, 0}, .delay = {36, 36} },
-    { .cursorPos = {1, 3}, .delay = {36, 36} },
-    { .cursorPos = {0, 1}, .delay = {36, 36} },
-    { .cursorPos = {1, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 2}, .delay = {36, 36} },
-    { .cursorPos = {3, 3}, .delay = {36, 36} },
-    { .cursorPos = {0, 1}, .delay = {36, 36} },
-    { .cursorPos = {1, 0}, .delay = {36, 36} },
-    { .cursorPos = {0, 2}, .delay = {36, 36} },
-    { .cursorPos = {1, 1}, .delay = {36, 36} },
-    { .cursorPos = {1, 1}, .delay = {36, 36} },
-    { .cursorPos = {255, 255}, .delay = {0, 0} },
-};
-
-'''
-        text = text[:idx] + archive_moves + text[idx:]
-        old = """    [TTVSCR_MATCHUPS] = sInputScripts_ChooseMove_Matchups,
-    [TTVSCR_CATCHING] = sInputScripts_ChooseMove_Catching,
-};
-"""
-        new = """    [TTVSCR_MATCHUPS]   = sInputScripts_ChooseMove_Matchups,
-    [TTVSCR_CATCHING]   = sInputScripts_ChooseMove_Catching,
-    [TTVSCR_OAK_AGATHA] = sInputScripts_ChooseMove_OakAgatha,
-};
-"""
-        if old not in text:
-            raise RuntimeError("Could not extend move script pointer table")
-        text = text.replace(old, new, 1)
-
-    # The archival battle does not need Poké Dude voiceover interceptions.
-    if "sPokedudeTextScripts_OakAgatha" not in text:
-        marker = "static const struct PokedudeTextScriptHeader *const sPokedudeTextScripts[] =\n{"
-        idx = text.find(marker)
-        if idx < 0:
-            raise RuntimeError("Pokedude text pointer table not found")
-        dummy = r'''static const struct PokedudeTextScriptHeader sPokedudeTextScripts_OakAgatha[] =
-{
-    { .btlcmd = 0xFF, .side = 0xFF, .stringid = 0xFFFF, .callback = NULL },
-};
-
-'''
-        text = text[:idx] + dummy + text[idx:]
-        old = """    [TTVSCR_MATCHUPS] = sPokedudeTextScripts_Matchups,
-    [TTVSCR_CATCHING] = sPokedudeTextScripts_Catching,
-};
-"""
-        new = """    [TTVSCR_MATCHUPS]   = sPokedudeTextScripts_Matchups,
-    [TTVSCR_CATCHING]   = sPokedudeTextScripts_Catching,
-    [TTVSCR_OAK_AGATHA] = sPokedudeTextScripts_OakAgatha,
-};
-"""
-        if old not in text:
-            raise RuntimeError("Could not extend text script pointer table")
-        text = text.replace(old, new, 1)
-
-    if "sParties_OakAgatha" not in text:
-        marker = "static const struct PokedudeBattlePartyInfo *const sPokedudeBattlePartyPointers[] =\n{"
-        idx = text.find(marker)
-        if idx < 0:
-            raise RuntimeError("Pokedude party pointer table not found")
-        parties = r'''static const struct PokedudeBattlePartyInfo sParties_OakAgatha[] =
-{
-    { .side = B_SIDE_PLAYER, .level = 53, .species = SPECIES_TAUROS,
-      .moves = {MOVE_TAKE_DOWN, MOVE_EARTHQUAKE, MOVE_SURF, MOVE_REST}, .nature = NATURE_BRAVE, .gender = MALE },
-    { .side = B_SIDE_PLAYER, .level = 54, .species = SPECIES_POLIWRATH,
-      .moves = {MOVE_HYDRO_PUMP, MOVE_FOCUS_PUNCH, MOVE_BLIZZARD, MOVE_TOXIC}, .nature = NATURE_BRAVE, .gender = MALE },
-    { .side = B_SIDE_PLAYER, .level = 54, .species = SPECIES_GENGAR,
-      .moves = {MOVE_HYPER_BEAM, MOVE_SHADOW_BALL, MOVE_SLUDGE_BOMB, MOVE_REST}, .nature = NATURE_MODEST, .gender = MALE },
-    { .side = B_SIDE_PLAYER, .level = 53, .species = SPECIES_DITTO,
-      .moves = {MOVE_TRANSFORM, MOVE_NONE, MOVE_NONE, MOVE_NONE}, .nature = NATURE_SERIOUS, .gender = GENDERLESS },
-    { .side = B_SIDE_PLAYER, .level = 56, .species = SPECIES_SNORLAX,
-      .moves = {MOVE_HYPER_BEAM, MOVE_SOLAR_BEAM, MOVE_REST, MOVE_SHADOW_BALL}, .nature = NATURE_BRAVE, .gender = MALE },
-    { .side = B_SIDE_PLAYER, .level = 58, .species = SPECIES_NIDOKING,
-      .moves = {MOVE_FOCUS_PUNCH, MOVE_EARTHQUAKE, MOVE_HYPER_BEAM, MOVE_TOXIC}, .nature = NATURE_ADAMANT, .gender = MALE },
-
-    { .side = B_SIDE_OPPONENT, .level = 53, .species = SPECIES_VICTREEBEL,
-      .moves = {MOVE_SLUDGE_BOMB, MOVE_SOLAR_BEAM, MOVE_SECRET_POWER, MOVE_TOXIC}, .nature = NATURE_MODEST, .gender = FEMALE },
-    { .side = B_SIDE_OPPONENT, .level = 54, .species = SPECIES_MUK,
-      .moves = {MOVE_SLUDGE_BOMB, MOVE_BRICK_BREAK, MOVE_GIGA_DRAIN, MOVE_ACID_ARMOR}, .nature = NATURE_CAREFUL, .gender = FEMALE },
-    { .side = B_SIDE_OPPONENT, .level = 54, .species = SPECIES_GOLBAT,
-      .moves = {MOVE_AERIAL_ACE, MOVE_SHADOW_BALL, MOVE_STEEL_WING, MOVE_CONFUSE_RAY}, .nature = NATURE_JOLLY, .gender = FEMALE },
-    { .side = B_SIDE_OPPONENT, .level = 53, .species = SPECIES_HAUNTER,
-      .moves = {MOVE_SHADOW_BALL, MOVE_PSYCHIC, MOVE_GIGA_DRAIN, MOVE_HYPNOSIS}, .nature = NATURE_MODEST, .gender = FEMALE },
-    { .side = B_SIDE_OPPONENT, .level = 56, .species = SPECIES_ARBOK,
-      .moves = {MOVE_SLUDGE_BOMB, MOVE_EARTHQUAKE, MOVE_IRON_TAIL, MOVE_GLARE}, .nature = NATURE_ADAMANT, .gender = FEMALE },
-    { .side = B_SIDE_OPPONENT, .level = 58, .species = SPECIES_GENGAR,
-      .moves = {MOVE_SHADOW_BALL, MOVE_PSYCHIC, MOVE_THUNDERBOLT, MOVE_HYPNOSIS}, .nature = NATURE_MODEST, .gender = FEMALE },
-    {0xFF}
-};
-
-'''
-        text = text[:idx] + parties + text[idx:]
-        old = """    [TTVSCR_MATCHUPS] = sParties_Matchups,
-    [TTVSCR_CATCHING] = sParties_Catching,
-};
-"""
-        new = """    [TTVSCR_MATCHUPS]   = sParties_Matchups,
-    [TTVSCR_CATCHING]   = sParties_Catching,
-    [TTVSCR_OAK_AGATHA] = sParties_OakAgatha,
-};
-"""
-        if old not in text:
-            raise RuntimeError("Could not extend party pointer table")
-        text = text.replace(old, new, 1)
-
-    # Automatically choose the next living Pokémon in the watch-only 6v6,
-    # instead of opening the player's party menu.
-    old = """static void PokedudeHandleChoosePokemon(void)
-{
-    s32 i;
-
-    gBattleControllerData[gActiveBattler] = CreateTask(TaskDummy, 0xFF);
-"""
-    new = """static void PokedudeHandleChoosePokemon(void)
-{
-    s32 i;
-
-    if (gSpecialVar_0x8004 == TTVSCR_OAK_AGATHA)
+    static const u16 oakMoves[PARTY_SIZE][MAX_MON_MOVES] =
     {
-        struct Pokemon *party = GetBattlerSide(gActiveBattler) == B_SIDE_PLAYER ? gPlayerParty : gEnemyParty;
-        for (i = 0; i < PARTY_SIZE; i++)
-        {
-            if (i != gBattlerPartyIndexes[gActiveBattler]
-             && GetMonData(&party[i], MON_DATA_SPECIES) != SPECIES_NONE
-             && GetMonData(&party[i], MON_DATA_HP) != 0)
-            {
-                BtlController_EmitChosenMonReturnValue(1, i, gBattlePartyCurrentOrder);
-                PokedudeBufferExecCompleted();
-                return;
-            }
-        }
-        PokedudeBufferExecCompleted();
-        return;
+        { MOVE_TAKE_DOWN, MOVE_EARTHQUAKE, MOVE_SURF, MOVE_REST },
+        { MOVE_HYDRO_PUMP, MOVE_FOCUS_PUNCH, MOVE_BLIZZARD, MOVE_TOXIC },
+        { MOVE_HYPER_BEAM, MOVE_SHADOW_BALL, MOVE_SLUDGE_BOMB, MOVE_REST },
+        { MOVE_TRANSFORM, MOVE_NONE, MOVE_NONE, MOVE_NONE },
+        { MOVE_HYPER_BEAM, MOVE_SOLAR_BEAM, MOVE_REST, MOVE_SHADOW_BALL },
+        { MOVE_FOCUS_PUNCH, MOVE_EARTHQUAKE, MOVE_HYPER_BEAM, MOVE_TOXIC },
+    };
+    static const u16 agathaMoves[PARTY_SIZE][MAX_MON_MOVES] =
+    {
+        { MOVE_SLUDGE_BOMB, MOVE_SOLAR_BEAM, MOVE_SECRET_POWER, MOVE_TOXIC },
+        { MOVE_SLUDGE_BOMB, MOVE_BRICK_BREAK, MOVE_GIGA_DRAIN, MOVE_ACID_ARMOR },
+        { MOVE_AERIAL_ACE, MOVE_SHADOW_BALL, MOVE_STEEL_WING, MOVE_CONFUSE_RAY },
+        { MOVE_SHADOW_BALL, MOVE_PSYCHIC, MOVE_GIGA_DRAIN, MOVE_HYPNOSIS },
+        { MOVE_SLUDGE_BOMB, MOVE_EARTHQUAKE, MOVE_IRON_TAIL, MOVE_GLARE },
+        { MOVE_SHADOW_BALL, MOVE_PSYCHIC, MOVE_THUNDERBOLT, MOVE_HYPNOSIS },
+    };
+    static const u16 oakSpecies[PARTY_SIZE] =
+    {
+        SPECIES_TAUROS, SPECIES_POLIWRATH, SPECIES_GENGAR,
+        SPECIES_DITTO, SPECIES_SNORLAX, SPECIES_NIDOKING
+    };
+    static const u16 agathaSpecies[PARTY_SIZE] =
+    {
+        SPECIES_VICTREEBEL, SPECIES_MUK, SPECIES_GOLBAT,
+        SPECIES_HAUNTER, SPECIES_ARBOK, SPECIES_GENGAR
+    };
+    static const u8 levels[PARTY_SIZE] = {53, 54, 54, 53, 56, 58};
+    u8 i;
+
+    ZeroPlayerPartyMons();
+    ZeroEnemyPartyMons();
+    for (i = 0; i < PARTY_SIZE; i++)
+    {
+        SetArchiveMon(&gPlayerParty[i], oakSpecies[i], levels[i], oakMoves[i]);
+        SetArchiveMon(&gEnemyParty[i], agathaSpecies[i], levels[i], agathaMoves[i]);
     }
 
-    gBattleControllerData[gActiveBattler] = CreateTask(TaskDummy, 0xFF);
-"""
-    if old in text:
-        text = text.replace(old, new, 1)
-    elif "gSpecialVar_0x8004 == TTVSCR_OAK_AGATHA" not in text:
-        raise RuntimeError("Could not add automatic archival switching")
+    gTrainerBattleOpponent_A = TRAINER_ELITE_FOUR_AGATHA;
+    gBattleTypeFlags = BATTLE_TYPE_TRAINER;
+}
 
-    # Avoid the voiceover system indexing beyond its normal explanatory arrays.
-    old = """static bool8 HandlePokedudeVoiceoverEtc(void)
-{
-    const struct PokedudeTextScriptHeader *header_p = sPokedudeTextScripts[gBattleStruct->pdScriptNum];
-"""
-    new = """static bool8 HandlePokedudeVoiceoverEtc(void)
-{
-    const struct PokedudeTextScriptHeader *header_p;
-
-    if (gBattleStruct->pdScriptNum == TTVSCR_OAK_AGATHA)
-        return FALSE;
-
-    header_p = sPokedudeTextScripts[gBattleStruct->pdScriptNum];
-"""
-    if old in text:
-        text = text.replace(old, new, 1)
+'''
+        text = text[:idx] + helper + text[idx:]
 
     write(path, text)
 
 
-def patch_historical_gengar_ability():
+def patch_historical_gengar():
     path = "src/battle_script_commands.c"
     text = read(path)
-    old = """    gBattleMons[gActiveBattler].ability = GetAbilityBySpecies(gBattleMons[gActiveBattler].species, gBattleMons[gActiveBattler].abilityNum);
+    if '#include "teachy_tv.h"' not in text:
+        marker = '#include "battle_scripts.h"\n'
+        if marker in text:
+            text = text.replace(marker, marker + '#include "teachy_tv.h"\n', 1)
 
-    // check knocked off item
-"""
-    new = """    gBattleMons[gActiveBattler].ability = GetAbilityBySpecies(gBattleMons[gActiveBattler].species, gBattleMons[gActiveBattler].abilityNum);
-
-    // In the Teachy TV archival battle only, Agatha's final Gengar predates
-    // Levitate for story purposes so Samuel's Nidoking can finish it with Earthquake.
-    if ((gBattleTypeFlags & BATTLE_TYPE_POKEDUDE)
-     && gSpecialVar_0x8004 == TTVSCR_OAK_AGATHA
-     && GetBattlerSide(gActiveBattler) == B_SIDE_OPPONENT
-     && gBattleMons[gActiveBattler].species == SPECIES_GENGAR)
-        gBattleMons[gActiveBattler].ability = ABILITY_NONE;
-
-    // check knocked off item
-"""
-    if old in text:
+    old = """    gBattleMons[gActiveBattler].ability = GetAbilityBySpecies(gBattleMons[gActiveBattler].species, gBattleMons[gActiveBattler].abilityNum);\n"""
+    new = old + """    if (gSpecialVar_0x8004 == TTVSCR_OAK_AGATHA\n        && GetBattlerSide(gActiveBattler) == B_SIDE_OPPONENT\n        && gBattleMons[gActiveBattler].species == SPECIES_GENGAR)\n        gBattleMons[gActiveBattler].ability = ABILITY_NONE;\n"""
+    if new not in text:
+        if old not in text:
+            raise RuntimeError("Could not patch historical Gengar ability")
         text = text.replace(old, new, 1)
-    elif "Agatha's final Gengar predates" not in text:
-        raise RuntimeError("Could not patch historical Gengar ability")
     write(path, text)
 
 
 def main():
-    patch_teachy_header()
+    patch_header()
     patch_strings()
-    patch_teachy_menu_and_flow()
-    patch_pokedude_history_battle()
-    patch_historical_gengar_ability()
-    print("FireRed Complete Teachy TV archival battle pass applied.")
+    patch_teachy_tv()
+    patch_historical_gengar()
+    print("Applied playable Oak vs Agatha Teachy TV flashback")
 
 
 if __name__ == "__main__":
