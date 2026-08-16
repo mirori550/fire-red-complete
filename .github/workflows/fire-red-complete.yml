@@ -37,3 +37,10 @@ jobs:
 
       - name: Show ROM checksum
         run: sha1sum pokefirered.gba
+
+      - name: Upload FireRed Complete ROM
+        uses: actions/upload-artifact@v4
+        with:
+          name: FireRed-Complete-ROM
+          path: pokefirered.gba
+          if-no-files-found: error
