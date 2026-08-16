@@ -1,0 +1,32 @@
+name: FireRed Complete Build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-complete:
+    runs-on: ubuntu-latest
+    env:
+      GAME_VERSION: FIRERED
+      GAME_LANGUAGE: ENGLISH
+      GAME_REVISION: 0
+      MODERN: 1
+      COMPARE: 0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libpng-dev
+
+      - name: Apply FireRed Complete source transformations
+        run: python3 tools/apply_fire_red_complete.py
+
+      - name: Build FireRed Complete
+        run: make -j2 all
+
+      - name: Show ROM checksum
+        run: sha1sum pokefirered.gba
