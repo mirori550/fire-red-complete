@@ -23,7 +23,9 @@ jobs:
           sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libpng-dev
 
       - name: Apply FireRed Complete source transformations
-        run: python3 tools/apply_fire_red_complete.py
+        run: |
+          python3 tools/apply_fire_red_complete.py
+          python3 tools/apply_fire_red_complete_postgame.py
 
       - name: Build FireRed Complete
         run: make -j2 all
