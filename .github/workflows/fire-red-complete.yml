@@ -34,7 +34,22 @@ jobs:
           python3 tools/apply_fire_red_complete_flashback_items.py
 
       - name: Build FireRed Complete
-        run: make -j2 all
+        shell: bash
+        run: |
+          set +e
+          make -j2 all 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            first_error=$(grep -m1 -E '(^|: )(fatal )?error:|undefined reference|No rule to make target|multiple definition' build.log || true)
+            if [ -z "$first_error" ]; then
+              first_error=$(tail -n 1 build.log)
+            fi
+            first_error=${first_error//'%'/'%25'}
+            first_error=${first_error//$'\r'/'%0D'}
+            first_error=${first_error//$'\n'/'%0A'}
+            echo "::error title=First build error::$first_error"
+            exit "$status"
+          fi
 
       - name: Show ROM checksum
         run: sha1sum pokefirered.gba
