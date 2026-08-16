@@ -27,6 +27,7 @@ jobs:
           python3 tools/apply_fire_red_complete.py
           python3 tools/apply_fire_red_complete_postgame.py
           python3 tools/apply_fire_red_complete_mew.py
+          python3 tools/apply_fire_red_complete_battle_dialogue.py
 
       - name: Build FireRed Complete
         run: make -j2 all
