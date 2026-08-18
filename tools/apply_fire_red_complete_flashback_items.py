@@ -27,6 +27,32 @@ def patch_trainer_item_limit():
     write(path, text)
 
 
+def patch_champion_samuel_metadata():
+    """Ensure Oak's custom-moves party uses the matching trainer-party type."""
+    path = "src/data/trainers.h"
+    text = read(path)
+    pattern = re.compile(
+        r"    \[TRAINER_PKMN_PROF_PROF_OAK\] = \{\n.*?\n    \},",
+        re.S,
+    )
+    replacement = r'''    [TRAINER_PKMN_PROF_PROF_OAK] = {
+        .trainerClass = TRAINER_CLASS_CHAMPION,
+        .encounterMusic_gender = TRAINER_ENCOUNTER_MUSIC_MALE,
+        .trainerPic = TRAINER_PIC_PROFESSOR_OAK,
+        .trainerName = _("SAMUEL"),
+        .items = {},
+        .doubleBattle = FALSE,
+        .aiFlags = AI_SCRIPT_CHECK_BAD_MOVE | AI_SCRIPT_TRY_TO_FAINT | AI_SCRIPT_CHECK_VIABILITY,
+        .party = NO_ITEM_CUSTOM_MOVES(sParty_PkmnProfProfOak),
+    },'''
+    match = pattern.search(text)
+    if match is None:
+        raise RuntimeError("Could not find Champion Samuel trainer metadata")
+    if ".party = NO_ITEM_CUSTOM_MOVES(sParty_PkmnProfProfOak)" not in match.group(0):
+        text = text[:match.start()] + replacement + text[match.end():]
+    write(path, text)
+
+
 def patch_archive_agatha_metadata():
     """Repurpose an unused Hoenn dummy slot so present-day Agatha is untouched."""
     path = "src/data/trainers.h"
@@ -122,9 +148,10 @@ def patch_playable_flashback_inventory():
 
 def main():
     patch_trainer_item_limit()
+    patch_champion_samuel_metadata()
     patch_archive_agatha_metadata()
     patch_playable_flashback_inventory()
-    print("Applied five Full Restores to both sides of the Oak/Agatha flashback")
+    print("Applied five Full Restores and finalized Champion Samuel metadata")
 
 
 if __name__ == "__main__":
