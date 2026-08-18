@@ -1,0 +1,59 @@
+name: FireRed Complete Build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-complete:
+    runs-on: ubuntu-latest
+    env:
+      GAME_VERSION: FIRERED
+      GAME_LANGUAGE: ENGLISH
+      GAME_REVISION: 0
+      MODERN: 0
+      COMPARE: 0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout agbcc
+        uses: actions/checkout@v4
+        with:
+          path: agbcc
+          repository: pret/agbcc
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libpng-dev
+
+      - name: Install agbcc
+        run: |
+          ./build.sh
+          ./install.sh ../
+        working-directory: ./agbcc
+
+      - name: Apply FireRed Complete source transformations
+        run: |
+          python3 tools/fix_leafgreen_merge.py
+          python3 tools/apply_fire_red_complete.py
+          python3 tools/apply_fire_red_complete_postgame.py
+          python3 tools/apply_fire_red_complete_mew.py
+          python3 tools/apply_fire_red_complete_battle_dialogue.py
+          python3 tools/apply_fire_red_complete_oak_rematch.py
+          python3 tools/apply_fire_red_complete_teachy.py
+          python3 tools/apply_fire_red_complete_flashback_items.py
+
+      - name: Build FireRed Complete
+        run: make -j2 GAME_VERSION=FIRERED GAME_LANGUAGE=ENGLISH GAME_REVISION=0 MODERN=0 COMPARE=0 rom
+
+      - name: Show ROM checksum
+        run: sha1sum pokefirered.gba
+
+      - name: Upload FireRed Complete ROM
+        uses: actions/upload-artifact@v4
+        with:
+          name: FireRed-Complete-ROM
+          path: pokefirered.gba
+          if-no-files-found: error

@@ -63,6 +63,24 @@ SaffronCity_Dojo_EventScript_GiveHitmon::
 	release
 	end
 
+SaffronCity_Dojo_EventScript_GiveOtherHitmon::
+	goto_if_eq VAR_TEMP_1, SPECIES_HITMONLEE, SaffronCity_Dojo_EventScript_GiveHitmonchanToo
+	givemon SPECIES_HITMONLEE, 25
+	return
+
+SaffronCity_Dojo_EventScript_GiveHitmonchanToo::
+	givemon SPECIES_HITMONCHAN, 25
+	return
+
+SaffronCity_Dojo_EventScript_FinishBothHitmons::
+	call SaffronCity_Dojo_EventScript_GiveOtherHitmon
+	removeobject 6
+	removeobject 7
+	setflag FLAG_HIDE_DOJO_HITMONLEE_BALL
+	setflag FLAG_HIDE_DOJO_HITMONCHAN_BALL
+	setflag FLAG_GOT_HITMON_FROM_DOJO
+	return
+
 SaffronCity_Dojo_EventScript_ReceivedHitmonParty::
 	removeobject VAR_LAST_TALKED
 	bufferspeciesname STR_VAR_1, VAR_TEMP_1
@@ -70,7 +88,7 @@ SaffronCity_Dojo_EventScript_ReceivedHitmonParty::
 	message SaffronCity_Dojo_Text_ReceivedMonFromKarateMaster
 	waitmessage
 	waitfanfare
-	setflag FLAG_GOT_HITMON_FROM_DOJO
+	call SaffronCity_Dojo_EventScript_FinishBothHitmons
 	msgbox Text_GiveNicknameToThisMon, MSGBOX_YESNO
 	goto_if_eq VAR_RESULT, NO, SaffronCity_Dojo_EventScript_EndGiveMon
 	call EventScript_GetGiftMonPartySlot
@@ -85,7 +103,7 @@ SaffronCity_Dojo_EventScript_ReceivedHitmonPC::
 	message SaffronCity_Dojo_Text_ReceivedMonFromKarateMaster
 	waitmessage
 	waitfanfare
-	setflag FLAG_GOT_HITMON_FROM_DOJO
+	call SaffronCity_Dojo_EventScript_FinishBothHitmons
 	msgbox Text_GiveNicknameToThisMon, MSGBOX_YESNO
 	goto_if_eq VAR_RESULT, NO, SaffronCity_Dojo_EventScript_TransferredHitmonToPC
 	call EventScript_NameReceivedBoxMon
